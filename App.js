@@ -5,28 +5,74 @@
  * @format
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react'; // Import useEffect
 import {
   StyleSheet,
   Text,
   View,
   TextInput,
-  Button, // Keep for Add Task button
+  Button,
   Keyboard,
   TouchableWithoutFeedback,
   FlatList,
-  TouchableOpacity, // Import TouchableOpacity for interactions
-  Alert, // Optional: For delete confirmation
+  TouchableOpacity,
+  Alert,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage'; // Import AsyncStorage
+
+const TASKS_STORAGE_KEY = '@VibeTaskManager:tasks'; // Define a key for storage
 
 function App() {
   const [currentTaskText, setCurrentTaskText] = useState('');
   const [tasks, setTasks] = useState([]);
+  const [isLoading, setIsLoading] = useState(true); // Optional: for loading indicator
+
+  // Load tasks from AsyncStorage when the component mounts
+  useEffect(() => {
+    const loadTasks = async () => {
+      try {
+        const storedTasks = await AsyncStorage.getItem(TASKS_STORAGE_KEY);
+        if (storedTasks !== null) {
+          setTasks(JSON.parse(storedTasks));
+        }
+      } catch (error) {
+        console.error('Failed to load tasks from storage', error);
+        Alert.alert("Error", "Failed to load tasks.");
+      } finally {
+        setIsLoading(false); // Stop loading indicator
+      }
+    };
+
+    loadTasks();
+  }, []); // Empty dependency array means this effect runs once on mount
+
+  // Save tasks to AsyncStorage whenever the tasks state changes
+  useEffect(() => {
+    // Don't save during the initial loading phase
+    // or if tasks haven't changed from their initial loaded state yet
+    // This condition prevents saving the initial empty array over loaded data
+    // if loadTasks is slow and this effect runs before it completes setting state.
+    // A more robust way would be to ensure save only happens after initial load.
+    // However, since loadTasks updates state, this effect will run *after* that.
+    // The main concern is not running save if tasks is still the default from useState
+    // AND the load has not yet occurred. The isLoading flag can help here.
+
+    if (!isLoading) { // Only save if not in the initial loading phase
+        const saveTasks = async () => {
+            try {
+                await AsyncStorage.setItem(TASKS_STORAGE_KEY, JSON.stringify(tasks));
+            } catch (error) {
+                console.error('Failed to save tasks to storage', error);
+                Alert.alert("Error", "Failed to save tasks.");
+            }
+        };
+        saveTasks();
+    }
+  }, [tasks, isLoading]); // Re-run this effect if tasks or isLoading changes
 
   const handleAddTaskPress = () => {
     const trimmedText = currentTaskText.trim();
     if (trimmedText === '') {
-      // console.log('Task input is empty.'); // Optional: user feedback
       return;
     }
     const newTask = {
@@ -34,12 +80,11 @@ function App() {
       text: trimmedText,
       completed: false,
     };
-    setTasks(prevTasks => [newTask, ...prevTasks]); // Add new task to the beginning of the array
+    setTasks(prevTasks => [newTask, ...prevTasks]);
     setCurrentTaskText('');
     Keyboard.dismiss();
   };
 
-  // a. Function to toggle task completion
   const handleToggleComplete = (taskId) => {
     setTasks(prevTasks =>
       prevTasks.map(task =>
@@ -48,54 +93,55 @@ function App() {
     );
   };
 
-  // a. Function to delete a task
   const handleDeleteTask = (taskId) => {
-    // Optional: Add a confirmation dialog
     Alert.alert(
       "Delete Task",
       "Are you sure you want to delete this task?",
       [
-        {
-          text: "Cancel",
-          style: "cancel"
-        },
+        { text: "Cancel", style: "cancel" },
         {
           text: "Delete",
           onPress: () => {
             setTasks(prevTasks => prevTasks.filter(task => task.id !== taskId));
           },
-          style: "destructive"
-        }
+          style: "destructive",
+        },
       ]
     );
   };
 
-  // b. Modify renderItem function
   const renderTaskItem = ({ item }) => (
     <View style={styles.taskItemContainer}>
       <TouchableOpacity
-        style={styles.taskTextWrapper} // Wrapper for text to expand
-        onPress={() => handleToggleComplete(item.id)} // ii. Call handleToggleComplete
+        style={styles.taskTextWrapper}
+        onPress={() => handleToggleComplete(item.id)}
       >
         <Text
           style={[
             styles.taskItemText,
-            item.completed && styles.completedTaskText, // iii. Visual indication
+            item.completed && styles.completedTaskText,
           ]}
         >
           {item.text}
         </Text>
       </TouchableOpacity>
-
-      {/* b. "Delete" button */}
       <TouchableOpacity
         style={styles.deleteButton}
-        onPress={() => handleDeleteTask(item.id)} // c. Call handleDeleteTask
+        onPress={() => handleDeleteTask(item.id)}
       >
         <Text style={styles.deleteButtonText}>Delete</Text>
       </TouchableOpacity>
     </View>
   );
+
+  if (isLoading) {
+    // Optional: Render a loading indicator while tasks are being loaded
+    return (
+      <View style={[styles.container, styles.loadingContainer]}>
+        <Text>Loading tasks...</Text>
+      </View>
+    );
+  }
 
   return (
     <TouchableWithoutFeedback onPress={() => Keyboard.dismiss()}>
@@ -132,11 +178,13 @@ function App() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    // justifyContent: 'flex-start', // No longer needed if list can fill space
     alignItems: 'center',
     backgroundColor: '#FFFFFF',
     paddingTop: 60,
     paddingHorizontal: 20,
+  },
+  loadingContainer: { // Style for loading state
+    justifyContent: 'center',
   },
   title: {
     fontSize: 28,
@@ -161,40 +209,40 @@ const styles = StyleSheet.create({
   },
   list: {
     width: '100%',
-    flex: 1, // Allow list to take remaining space if content overflows
+    flex: 1,
   },
   taskItemContainer: {
-    flexDirection: 'row', // Layout children in a row
-    alignItems: 'center', // Align items vertically in the center
-    justifyContent: 'space-between', // Space out text and delete button
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     backgroundColor: '#F9F9F9',
-    paddingVertical: 12, // Adjusted padding
-    paddingHorizontal: 15, // Adjusted padding
+    paddingVertical: 12,
+    paddingHorizontal: 15,
     borderBottomWidth: 1,
     borderBottomColor: '#E0E0E0',
     borderRadius: 5,
     marginBottom: 8,
   },
   taskTextWrapper: {
-    flex: 1, // Allow text wrapper to take available space
-    marginRight: 10, // Add some space before the delete button
+    flex: 1,
+    marginRight: 10,
   },
   taskItemText: {
     fontSize: 16,
     color: '#333',
   },
   completedTaskText: {
-    textDecorationLine: 'line-through', // Style for completed tasks
-    color: '#999', // Lighter color for completed tasks
+    textDecorationLine: 'line-through',
+    color: '#999',
   },
   deleteButton: {
     paddingVertical: 6,
     paddingHorizontal: 12,
-    backgroundColor: '#FF3B30', // Red color for delete button
+    backgroundColor: '#FF3B30',
     borderRadius: 5,
   },
   deleteButtonText: {
-    color: '#FFFFFF', // White text for delete button
+    color: '#FFFFFF',
     fontSize: 14,
     fontWeight: '500',
   },
